@@ -117,6 +117,20 @@ export async function generateWithFallback(
   prompt: string,
   config: GeminiModelConfig = {}
 ): Promise<string> {
+  console.log(`[Gemini] Starting generation with config:`, {
+    preferredModel: config.preferredModel,
+    hasSchema: !!config.zodSchema,
+    promptLength: prompt.length,
+    timeoutMs: config.timeoutMs
+  });
+
+  // Check API key
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY environment variable is not set');
+  }
+  console.log(`[Gemini] API key configured (length: ${apiKey.length})`);
+
   if (config.preferredModel && !isValidModel(config.preferredModel)) {
     console.warn(`Invalid preferredModel "${config.preferredModel}", using default cascade`);
   }
@@ -130,6 +144,7 @@ export async function generateWithFallback(
 
   for (const modelName of models) {
     attemptedModels.push(modelName);
+    console.log(`[Gemini] Attempting model: ${modelName}`);
 
     try {
       let generationConfig = config.generationConfig;
@@ -144,18 +159,20 @@ export async function generateWithFallback(
             responseMimeType: "application/json",
             responseSchema: geminiSchema
           };
-          console.log(`Using structured output with schema for ${modelName}`);
+          console.log(`[Gemini] Using structured output with schema for ${modelName}`);
         } catch (schemaError) {
-          console.error(`Failed to convert Zod schema to Gemini schema:`, schemaError);
+          console.error(`[Gemini] Failed to convert Zod schema to Gemini schema:`, schemaError);
           throw new Error(`Schema conversion failed: ${schemaError instanceof Error ? schemaError.message : 'Unknown error'}`);
         }
       }
 
+      console.log(`[Gemini] Getting model instance for: ${modelName}`);
       const model = genAI.getGenerativeModel({
         model: modelName,
         generationConfig
       });
 
+      console.log(`[Gemini] Starting content generation...`);
       const requestStart = Date.now();
       const generatePromise = model.generateContent(prompt);
 
@@ -169,7 +186,15 @@ export async function generateWithFallback(
         : await generatePromise;
 
       const latencyMs = Date.now() - requestStart;
+      console.log(`[Gemini] Generation completed in ${latencyMs}ms`);
+
       const geminiResponse = (result as any).response;
+
+      if (!geminiResponse) {
+        console.error(`[Gemini] No response received from ${modelName}`);
+        throw new Error(`No response received from Gemini API`);
+      }
+
       const response = geminiResponse.text();
 
       if (response) {
@@ -178,31 +203,56 @@ export async function generateWithFallback(
         const candidateTokens = usage.candidatesTokenCount ?? usage.outputTokenCount ?? 'n/a';
         const totalTokens = usage.totalTokenCount ?? 'n/a';
         console.log(
-          `[Gemini][${modelName}] latency=${latencyMs}ms promptChars=${promptLength} ` +
+          `[Gemini][${modelName}] SUCCESS latency=${latencyMs}ms promptChars=${promptLength} ` +
           `promptTokens=${promptTokens} responseTokens=${candidateTokens} totalTokens=${totalTokens}`
         );
-        console.log(`Content generated using ${modelName}`);
+        console.log(`[Gemini] Content generated using ${modelName} (${response.length} chars)`);
         return response;
       }
 
-      console.warn(`Model ${modelName} returned empty response, trying next...`);
+      console.warn(`[Gemini] Model ${modelName} returned empty response, trying next...`);
     } catch (error) {
       lastError = error;
       const errorType = getErrorType(error);
 
+      // Enhanced error logging
+      console.error(`[Gemini] Model ${modelName} failed (${errorType}):`, {
+        error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        status: error?.status,
+        statusText: error?.statusText
+      });
+
+      // Check for specific error types
+      if (error instanceof Error) {
+        if (error.message.includes('fetch failed') || error.message.includes('ENOTFOUND') || error.message.includes('ECONNRESET')) {
+          console.error(`[Gemini] Network connectivity issue detected for ${modelName}`);
+          throw new Error(`Gemini API network error: Unable to connect to Google servers. Please check your internet connection and try again.`);
+        }
+
+        if (error.message.includes('API key') || error.message.includes('unauthorized')) {
+          console.error(`[Gemini] Authentication issue detected`);
+          throw new Error(`Gemini API authentication error: Invalid or expired API key. Please check your GEMINI_API_KEY.`);
+        }
+      }
+
       if (!isRetryableError(error)) {
-        console.error(`Model ${modelName} failed with non-retryable error (${errorType}):`, error);
+        console.error(`[Gemini] Model ${modelName} failed with non-retryable error (${errorType}):`, error);
         throw new Error(`Gemini API error (${errorType}): ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
 
-      console.log(`Model ${modelName} ${errorType}, trying next...`);
+      console.log(`[Gemini] Model ${modelName} ${errorType}, trying next...`);
     }
   }
 
   const errorType = getErrorType(lastError);
-  throw new Error(
+  const finalError = new Error(
     `All Gemini models failed after trying: ${attemptedModels.join(', ')}. ` +
     `Last error type: ${errorType}. ` +
     `${lastError instanceof Error ? lastError.message : 'Unknown error'}`
   );
+
+  console.error(`[Gemini] All models failed:`, finalError);
+  throw finalError;
 }

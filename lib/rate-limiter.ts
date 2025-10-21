@@ -116,18 +116,33 @@ export class RateLimiter {
     const windowStart = now - config.windowMs;
 
     try {
-      // First, clean up old entries
-      await supabase
+      // First, clean up old entries with timeout
+      const cleanupPromise = supabase
         .from('rate_limits')
         .delete()
         .lt('timestamp', new Date(windowStart).toISOString());
 
-      // Count recent requests
-      const { data: recentRequests, error: countError } = await supabase
+      // Add timeout to prevent hanging
+      const cleanupResult = await Promise.race([
+        cleanupPromise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Rate limit cleanup timeout')), 5000)
+        )
+      ]);
+
+      // Count recent requests with timeout
+      const countPromise = supabase
         .from('rate_limits')
         .select('id')
         .eq('key', rateLimitKey)
         .gte('timestamp', new Date(windowStart).toISOString());
+
+      const { data: recentRequests, error: countError } = await Promise.race([
+        countPromise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Rate limit query timeout')), 5000)
+        )
+      ]) as any;
 
       if (countError) throw countError;
 

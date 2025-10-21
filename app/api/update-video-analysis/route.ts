@@ -32,20 +32,44 @@ async function handler(req: NextRequest) {
       updateData.suggested_questions = suggestedQuestions;
     }
 
+    console.log('Attempting to update video analysis:', { videoId, hasSummary: summary !== undefined, hasQuestions: suggestedQuestions !== undefined });
+
     const { data: updatedVideo, error: updateError } = await supabase
       .from('video_analyses')
       .update(updateData)
       .eq('youtube_id', videoId)
-      .select()
+      .select('id, youtube_id, title')
       .single();
 
     if (updateError) {
-      console.error('Error updating video analysis:', updateError);
+      console.error('Error updating video analysis:', {
+        error: updateError,
+        code: updateError.code,
+        details: updateError.details,
+        message: updateError.message,
+        videoId
+      });
+
+      // If no record found, it's not an error - just return success
+      if (updateError.code === 'PGRST116') {
+        console.log('No existing video analysis found to update, this is ok');
+        return NextResponse.json({
+          success: true,
+          message: 'No existing analysis to update'
+        });
+      }
+
       return NextResponse.json(
-        { error: 'Failed to update video analysis' },
+        {
+          error: 'Failed to update video analysis',
+          details: updateError.message,
+          code: updateError.code
+        },
         { status: 500 }
       );
     }
+
+    console.log('Successfully updated video analysis:', { videoId, updatedId: updatedVideo?.id });
 
     return NextResponse.json({
       success: true,

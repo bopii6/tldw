@@ -59,21 +59,67 @@ async function handler(req: NextRequest) {
 
     const { data: { user } } = await supabase.auth.getUser();
 
-    const { data: result, error: saveError } = await supabase
-      .rpc('upsert_video_analysis_with_user_link', {
-        p_youtube_id: videoId,
-        p_title: videoInfo.title,
-        p_author: videoInfo.author || null,
-        p_duration: videoInfo.duration || null,
-        p_thumbnail_url: videoInfo.thumbnail || null,
-        p_transcript: transcript,
-        p_topics: topics,
-        p_summary: summary || null,
-        p_suggested_questions: suggestedQuestions || null,
-        p_model_used: model,
-        p_user_id: user?.id || null
-      })
-      .single();
+    // First try to use the RPC function
+    let result, saveError;
+
+    try {
+      const rpcResult = await supabase
+        .rpc('upsert_video_analysis_with_user_link', {
+          p_youtube_id: videoId,
+          p_title: videoInfo.title,
+          p_author: videoInfo.author || null,
+          p_duration: videoInfo.duration || null,
+          p_thumbnail_url: videoInfo.thumbnail || null,
+          p_description: videoInfo.description || null,
+          p_tags: videoInfo.tags || [],
+          p_transcript: transcript,
+          p_topics: topics,
+          p_summary: summary || null,
+          p_suggested_questions: suggestedQuestions || null,
+          p_model_used: model,
+          p_user_id: user?.id || null
+        })
+        .single();
+
+      result = rpcResult.data;
+      saveError = rpcResult.error;
+    } catch (rpcError) {
+      console.error('RPC function failed, falling back to direct insert:', rpcError);
+      saveError = rpcError;
+    }
+
+    // If RPC fails, try direct upsert
+    if (saveError) {
+      console.log('Attempting direct upsert as fallback...');
+      const upsertData = {
+        youtube_id: videoId,
+        user_id: user?.id || null,
+        title: videoInfo.title,
+        author: videoInfo.author || null,
+        duration: videoInfo.duration || null,
+        thumbnail_url: videoInfo.thumbnail || null,
+        description: videoInfo.description || null,
+        tags: videoInfo.tags || [],
+        transcript: transcript,
+        topics: topics,
+        summary: summary || null,
+        suggested_questions: suggestedQuestions || null,
+        model_used: model,
+        updated_at: new Date().toISOString()
+      };
+
+      const upsertResult = await supabase
+        .from('video_analyses')
+        .upsert(upsertData, {
+          onConflict: 'youtube_id',
+          ignoreDuplicates: false
+        })
+        .select('id')
+        .single();
+
+      result = upsertResult.data;
+      saveError = upsertResult.error;
+    }
 
     if (saveError) {
       console.error('Error saving video analysis:', saveError);
