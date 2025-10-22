@@ -6,7 +6,8 @@
       "Bash(findstr:*)",
       "Bash(npx supabase db push:*)",
       "Bash(npm run dev:*)",
-      "Bash(del:*)"
+      "Bash(del:*)",
+      "Bash(PORT=3010 npm run dev:*)"
     ],
     "deny": [],
     "ask": []
