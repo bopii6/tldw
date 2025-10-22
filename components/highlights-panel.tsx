@@ -39,7 +39,7 @@ export function HighlightsPanel({
   videoId,
 }: HighlightsPanelProps) {
   return (
-    <Card className="overflow-hidden p-0 border-0 relative">
+    <Card className="overflow-hidden p-0 border-0 relative flex flex-col h-full">
       <div className={cn(
         "p-2.5 bg-background rounded-b-3xl flex-shrink-0 transition-all duration-200",
         isLoadingThemeTopics && "blur-[4px] opacity-50 pointer-events-none"
@@ -86,6 +86,7 @@ export function HighlightsPanel({
         </div>
       </div>
 
+  
       {/* Loading overlay */}
       {isLoadingThemeTopics && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 pointer-events-none">

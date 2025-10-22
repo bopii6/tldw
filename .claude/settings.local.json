@@ -7,7 +7,9 @@
       "Bash(npx supabase db push:*)",
       "Bash(npm run dev:*)",
       "Bash(del:*)",
-      "Bash(PORT=3010 npm run dev:*)"
+      "Bash(PORT=3010 npm run dev:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(tasklist:*)"
     ],
     "deny": [],
     "ask": []
