@@ -89,15 +89,37 @@ export function AuthModal({ open, onOpenChange, onSuccess, trigger = 'manual', c
       console.log('Stored video for post-auth linking:', currentVideoId)
     }
 
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || window.location.origin}/auth/callback`,
-      },
-    })
+    const redirectUrl = `${process.env.NEXT_PUBLIC_APP_URL || window.location.origin}/auth/callback`
+    console.log('Google OAuth redirect URL:', redirectUrl)
 
-    if (error) {
-      setError(error.message)
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUrl,
+        },
+      })
+
+      if (error) {
+        console.error('Google OAuth error:', error)
+
+        // Provide more user-friendly error messages
+        let userMessage = error.message
+        if (error.message?.includes('provider is not enabled')) {
+          userMessage = 'Google sign in is not configured. Please use email sign up instead.'
+        } else if (error.message?.includes('popup blocked')) {
+          userMessage = 'Pop-up was blocked. Please allow pop-ups for this site and try again.'
+        }
+
+        setError(userMessage)
+        toast.error(userMessage)
+      } else {
+        console.log('Google OAuth initiated successfully')
+      }
+    } catch (err) {
+      console.error('Unexpected error during Google OAuth:', err)
+      setError('Failed to start Google sign in. Please try again.')
+      toast.error('Failed to start Google sign in. Please try again.')
     }
 
     setLoading(false)
